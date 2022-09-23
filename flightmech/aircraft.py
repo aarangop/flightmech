@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import math
+from typing import Callable, Any
 
 import numpy as np
 import pandas as pd
@@ -69,16 +72,12 @@ class AircraftState(FlightMechBaseModel):
     def alpha_deg(self):
         return math.degrees(self.alpha)
 
-    def update(self, dt=0, accel=np.zeros(3), d_theta: float = 0):
-        self.a = accel
-        self.V = self.V + self.a * dt
-        self.s = self.s + self.a / 2 * dt ** 2 + self.V * dt
+    @property
+    def theta_deg(self):
+        return math.degrees(self.theta)
 
-        gamma_new = np.arctan(self.V[2] / self.V[0])
-        self.d_gamma = gamma_new - self.gamma
-        self.gamma = gamma_new
-        self.alpha = self.theta - self.gamma
-        self.theta = self.alpha + self.gamma
+    def update_gamma(self):
+        self.gamma = - np.arctan(self.V[2] / self.V[0])
 
     def V_a(self):
         return np.array([np.linalg.norm(self.V), 0, 0])
@@ -108,6 +107,9 @@ class Aircraft(BaseModel):
     def G(self):
         return self.m * g_0
 
+    def G_g(self):
+        return np.array([0, 0, self.G()])
+
     def A(self):
         return self.aerodynamics.C_A(self.state.alpha_deg) * self.state.rho() / 2 * self.state.V_a()[0] ** 2 * self.S
 
@@ -136,13 +138,19 @@ class Aircraft(BaseModel):
         return self.F_f(n) * f_to_a(self.state.alpha)
 
     def F_g(self, n: float = 1):
-        F_f = self.F_f(n)
-        res = np.matmul(f_to_g(self.state.theta), F_f)
+        res = np.matmul(f_to_g(self.state.theta), self.F_f(n))
         return res
 
     def accel(self, n: float = 1):
-        A = self.A_g()
-        F = self.F_g(n)
-        W = self.W_g()
-        res = A + F + W + np.array([0, 0, self.m * g_0])
-        return res / self.m
+        return (self.A_g() + self.F_g(n) + self.W_g() + self.G_g()) / self.m
+
+    def update(self, dt: float, update_fn: Callable[[Aircraft, Any], Any], **kwargs):
+        self.state.a = self.accel()
+        self.state.V = self.state.V + self.state.a * dt
+        self.state.s = self.state.s + self.state.a / 2 * dt ** 2 + self.state.V * dt
+
+        # Re-calculate angles
+        self.state.update_gamma()
+        self.state.theta = self.state.alpha + self.state.gamma
+
+        return update_fn(self, **kwargs)
