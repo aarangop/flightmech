@@ -1,2 +1,2 @@
 # flightmech
-Flugmechanisches Engine für Flugleistungsrechnungen
+Simple flight mechanics engine in python.
